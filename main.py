@@ -33,12 +33,12 @@ except Exception as e:
     print(f"Error initializing Ollama: {e}")
     exit(1)
 
-# Set up memory
-memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+# Set up memory with user IDs to handle multiple conversations
+conversations = {}
 
 # Create a simple prompt template
-prompt = ChatPromptTemplate.from_messages([
-    ("system", """You are a helpful AI assistant. You can answer questions, provide information, and have conversations.
+base_prompt = ChatPromptTemplate.from_messages([
+    ("system", """You are a helpful AI assistant available through Telegram. You can answer questions, provide information, and have conversations.
     
 Some things you can help with:
 - General knowledge questions
@@ -46,24 +46,40 @@ Some things you can help with:
 - Learning about specific topics
 - Providing helpful advice
 
-If you don't know something, just say so."""),
+If you don't know something, just say so. Keep your responses concise and friendly."""),
     MessagesPlaceholder(variable_name="chat_history"),
     ("human", "{question}")
 ])
 
-# Create a simple chain
-chain = LLMChain(
-    llm=llm,
-    prompt=prompt,
-    memory=memory,
-    verbose=True
-)
+# Function to get or create a conversation chain for a user
+def get_user_chain(user_id=None):
+    """Get or create a conversation chain for a specific user."""
+    if user_id is None:
+        user_id = "default"
+        
+    if user_id not in conversations:
+        # Create new memory and chain for this user
+        memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+        chain = LLMChain(
+            llm=llm,
+            prompt=base_prompt,
+            memory=memory,
+            verbose=False
+        )
+        conversations[user_id] = chain
+        
+    return conversations[user_id]
 
 # Function to process user messages
-def process_message(user_message: str):
+def process_message(user_message: str, user_id=None):
     """Process a message from the user and return a response."""
     try:
-        print(f"Processing message: {user_message}")
+        print(f"Processing message from user {user_id}: {user_message}")
+        
+        # Get the chain for this user
+        chain = get_user_chain(user_id)
+        
+        # Invoke the chain with the user's message
         result = chain.invoke({"question": user_message})
         return result.get("text", "No response generated")
     except Exception as e:
@@ -71,7 +87,7 @@ def process_message(user_message: str):
         print(error_msg)
         return error_msg
 
-# Example test
+# Example test for local CLI usage
 if __name__ == "__main__":
     print("Starting basic chatbot. Type 'exit' to quit.")
     print("This is a simple chatbot using your Ollama model.")
@@ -88,66 +104,3 @@ if __name__ == "__main__":
         print("\nProcessing...")
         response = process_message(query)
         print(f"\nAI: {response}")
-
-"""
-FUTURE DEVELOPMENT GUIDE
-
-=== ADDING TOOLS ===
-This simplified version doesn't include tools like search and Wikipedia.
-To add them later, you'll need to:
-
-1. Create a separate file for your tools:
-   # tools.py
-   # from langchain_community.utilities import WikipediaAPIWrapper
-   # from langchain_community.utilities import DuckDuckGoSearchAPIWrapper
-   # 
-   # Define your tool functions here
-
-2. Update your prompt to include instructions about tools:
-   # system_message = \"\"\"You are a helpful AI assistant with access to tools.
-   # When you need to look up information, say [USING TOOL: tool_name] before using the tool,
-   # then say what you're searching for, then say [TOOL RESPONSE: response] with the result.
-   # \"\"\"
-
-3. Create a function to handle tool usage manually:
-   # def handle_tools(message):
-   #     if "[USING TOOL: search]" in message:
-   #         # Extract search query and call search tool
-   #         # Replace the placeholder with actual search results
-   #     return message
-
-=== VIDEO GENERATION INTEGRATION ===
-To integrate video generation:
-
-1. Create a separate videogen.py file with your video generation code:
-   # from videogen import generate_video
-
-2. Update the process_message function to handle video generation:
-   # def process_message(user_message: str):
-   #     if "video" in user_message.lower():
-   #         # Add video instruction to the prompt
-   #         video_message = f"The user wants a video about: {user_message}. Create a script with a title and content."
-   #         result = chain.invoke({"question": video_message})
-   #         # Parse result and generate video
-   #         video_url = generate_video(result.get("text"))
-   #         return f"Video generated: {video_url}\n\nScript: {result.get('text')}"
-   #     else:
-   #         # Process as regular chat
-   #         result = chain.invoke({"question": user_message})
-   #         return result.get("text", "No response generated")
-
-=== MESSAGING PLATFORM INTEGRATION ===
-To integrate with Telegram:
-
-1. Create a separate messaging.py file:
-   # pip install python-telegram-bot
-   # from telegram.ext import Application, CommandHandler, MessageHandler, filters
-   # from main import process_message
-
-2. Create handlers that use your process_message function:
-   # async def handle_message(update, context):
-   #     user_text = update.message.text
-   #     await update.message.chat.send_action(action="typing")
-   #     response = process_message(user_text)
-   #     await update.message.reply_text(response)
-"""
